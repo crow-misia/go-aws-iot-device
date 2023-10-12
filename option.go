@@ -7,6 +7,7 @@ import (
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"log/slog"
 	"os"
+	"time"
 )
 
 // ClientOption type
@@ -66,6 +67,30 @@ func WithTLSConfig(tlsConfig *tls.Config) ClientOption {
 func WithMQTTConfig(config *mqtt.ClientOptions) ClientOption {
 	return func(client *client) error {
 		client.mqttConfig = config
+		return nil
+	}
+}
+
+// WithConnectTimeout is connection timeout setter
+func WithConnectTimeout(timeout time.Duration) ClientOption {
+	return func(client *client) error {
+		client.connectTimeout = timeout
+		return nil
+	}
+}
+
+// WithPublishTimeout is publish timeout setter
+func WithPublishTimeout(timeout time.Duration) ClientOption {
+	return func(client *client) error {
+		client.publishTimeout = timeout
+		return nil
+	}
+}
+
+// WithSubscribeTimeout is subscription timeout setter
+func WithSubscribeTimeout(timeout time.Duration) ClientOption {
+	return func(client *client) error {
+		client.subscribeTimeout = timeout
 		return nil
 	}
 }
