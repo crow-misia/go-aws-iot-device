@@ -78,7 +78,7 @@ func (c *client) Connect(clientId string) error {
 	c.mqttClient = client
 
 	token := client.Connect()
-	return mqtt.WaitTokenTimeout(token, c.connectTimeout)
+	return waitTokenTimeout(token, c.connectTimeout)
 }
 
 func (c *client) Disconnect(quiesce uint) {
