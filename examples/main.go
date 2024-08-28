@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/crow-misia/go-aws-iot-device"
+	"github.com/google/uuid"
 	"log"
 	"os"
 )
@@ -15,7 +16,6 @@ func main() {
 		caFilename   string
 		certFilename string
 		keyFilename  string
-		thingName    string
 		template     string
 	)
 	flag.NewFlagSet("help", flag.ExitOnError)
@@ -23,11 +23,10 @@ func main() {
 	flag.StringVar(&caFilename, "ca", "AmazonRootCA1.pem", "CA Certification PEM filename")
 	flag.StringVar(&certFilename, "cert", "certificate.pem", "Client Certification PEM filename")
 	flag.StringVar(&keyFilename, "key", "private.key", "Private Key filename")
-	flag.StringVar(&thingName, "thing", "private.key", "Thing name")
 	flag.StringVar(&template, "template", "", "Template name")
 	flag.Parse()
 
-	if len(endpoint) == 0 || len(caFilename) == 0 || len(certFilename) == 0 || len(keyFilename) == 0 || len(thingName) == 0 || len(template) == 0 {
+	if len(endpoint) == 0 || len(caFilename) == 0 || len(certFilename) == 0 || len(keyFilename) == 0 || len(template) == 0 {
 		flag.PrintDefaults()
 		return
 	}
@@ -40,16 +39,19 @@ func main() {
 		panic(fmt.Sprintf("failed to construct tls config: %v", err))
 	}
 	defer client.Disconnect(250)
-	log.Print(client.IsConnected())
 
-	log.Printf("connecting... %s\n", endpoint)
-	if err = client.Connect(thingName); err != nil {
+	clientId, err := uuid.NewRandom()
+	if err != nil {
+		panic(fmt.Sprintf("failed to generate client id: %v", err))
+	}
+	log.Printf("connecting... %s with %s\n", endpoint, clientId)
+	if err = client.Connect(clientId.String()); err != nil {
 		panic(fmt.Sprintf("failed to connect broker: %v", err))
 	}
 
 	provisioner := awsiotdevice.CreateProvisioner(client)
 	response, err := provisioner.ProvisioningWithCsr(template, map[string]interface{}{
-		"SerialNumber": "test",
+		"SerialNumber": clientId.String(),
 	})
 	if err != nil {
 		panic(fmt.Sprintf("failed create CSR: %v", err))
