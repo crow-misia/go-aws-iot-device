@@ -98,7 +98,7 @@ func (c *client) IsConnectionOpen() bool {
 
 func (c *client) Publish(topic string, qos byte, retained bool, payload interface{}) error {
 	token := c.mqttClient.Publish(topic, qos, retained, payload)
-	return mqtt.WaitTokenTimeout(token, c.publishTimeout)
+	return waitTokenTimeout(token, c.publishTimeout)
 }
 
 func (c *client) PublishWithReply(topic string, payload interface{}) (mqtt.Message, error) {
@@ -114,11 +114,11 @@ func (c *client) PublishWithReply(topic string, payload interface{}) (mqtt.Messa
 	filters[rejectedTopic] = 1
 	subscribeToken := c.mqttClient.SubscribeMultiple(filters, subscribeCallback)
 	defer c.mqttClient.Unsubscribe(acceptedTopic, rejectedTopic)
-	if err := mqtt.WaitTokenTimeout(subscribeToken, c.subscribeTimeout); err != nil {
+	if err := waitTokenTimeout(subscribeToken, c.subscribeTimeout); err != nil {
 		return nil, err
 	}
 	token := c.mqttClient.Publish(topic, 1, false, payload)
-	if err := mqtt.WaitTokenTimeout(token, c.publishTimeout); err != nil {
+	if err := waitTokenTimeout(token, c.publishTimeout); err != nil {
 		return nil, err
 	}
 
@@ -128,17 +128,17 @@ func (c *client) PublishWithReply(topic string, payload interface{}) (mqtt.Messa
 
 func (c *client) Subscribe(topic string, qos byte, callback mqtt.MessageHandler) error {
 	token := c.mqttClient.Subscribe(topic, qos, callback)
-	return mqtt.WaitTokenTimeout(token, c.subscribeTimeout)
+	return waitTokenTimeout(token, c.subscribeTimeout)
 }
 
 func (c *client) SubscribeMultiple(filters map[string]byte, callback mqtt.MessageHandler) error {
 	token := c.mqttClient.SubscribeMultiple(filters, callback)
-	return mqtt.WaitTokenTimeout(token, c.subscribeTimeout)
+	return waitTokenTimeout(token, c.subscribeTimeout)
 }
 
 func (c *client) Unsubscribe(topics ...string) error {
 	token := c.mqttClient.Unsubscribe(topics...)
-	return mqtt.WaitTokenTimeout(token, c.subscribeTimeout)
+	return waitTokenTimeout(token, c.subscribeTimeout)
 }
 
 func newTLSConfig(rootCA []byte, certificate tls.Certificate) (*tls.Config, error) {
@@ -157,4 +157,11 @@ func newTLSConfig(rootCA []byte, certificate tls.Certificate) (*tls.Config, erro
 		InsecureSkipVerify: false,
 		MinVersion:         tls.VersionTLS13,
 	}, nil
+}
+
+func waitTokenTimeout(token mqtt.Token, d time.Duration) error {
+	if d > 0 {
+		return mqtt.WaitTokenTimeout(token, d)
+	}
+	return token.Error()
 }
