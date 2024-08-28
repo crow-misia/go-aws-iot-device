@@ -67,14 +67,13 @@ func WithSignatureAlgorithm(signatureAlgorithm x509.SignatureAlgorithm) Provisio
 }
 
 func (p *provisioner) Provisioning(templateName string, parameters map[string]interface{}) (*ProvisioningResponse, error) {
-	var msg mqtt.Message
-	var err error
-	if msg, err = p.client.PublishWithReply(createKeysAndCertificateTopic, `{}`); err != nil {
+	msg, err := p.client.PublishWithReply(createKeysAndCertificateTopic, `{}`)
+	if err != nil {
 		return nil, err
 	}
-	// TODO reject handling
+
 	var createResponse CreateKeysAndCertificateResponse
-	if err := json.Unmarshal(msg.Payload(), &createResponse); err != nil {
+	if err = handingReply(msg, &createResponse); err != nil {
 		return nil, err
 	}
 
@@ -94,7 +93,6 @@ func (p *provisioner) Provisioning(templateName string, parameters map[string]in
 
 func (p *provisioner) ProvisioningWithCsr(templateName string, parameters map[string]interface{}) (*ProvisioningResponse, error) {
 	var msg mqtt.Message
-	var err error
 
 	csr, err := createCsr(p.curve, p.signatureAlgorithm)
 	if err != nil {
@@ -112,9 +110,9 @@ func (p *provisioner) ProvisioningWithCsr(templateName string, parameters map[st
 	if err != nil {
 		return nil, err
 	}
-	// TODO reject handling
+
 	var createResponse CreateCertificateFromCsrResponse
-	if err := json.Unmarshal(msg.Payload(), &createResponse); err != nil {
+	if err = handingReply(msg, &createResponse); err != nil {
 		return nil, err
 	}
 
@@ -134,7 +132,6 @@ func (p *provisioner) ProvisioningWithCsr(templateName string, parameters map[st
 
 func (p *provisioner) registerThings(templateName string, parameters map[string]interface{}, token string) (*RegisterThingResponse, error) {
 	var msg mqtt.Message
-	var err error
 
 	request, err := json.Marshal(&RegisterThingRequest{
 		CertificateOwnershipToken: token,
@@ -149,27 +146,25 @@ func (p *provisioner) registerThings(templateName string, parameters map[string]
 		return nil, err
 	}
 
-	err = handingRegisterThingError(msg)
-	if err != nil {
-		return nil, err
-	}
-
 	var response RegisterThingResponse
-	if err := json.Unmarshal(msg.Payload(), &response); err != nil {
+	if err = handingReply(msg, &response); err != nil {
 		return nil, err
 	}
 	return &response, nil
 }
 
-func handingRegisterThingError(msg mqtt.Message) error {
+func handingReply(msg mqtt.Message, response any) error {
 	if strings.LastIndex(msg.Topic(), "/rejected") < 0 {
+		if err := json.Unmarshal(msg.Payload(), response); err != nil {
+			return err
+		}
 		return nil
 	}
 
-	var response ProvisioningErrorResponse
-	if err := json.Unmarshal(msg.Payload(), &response); err != nil {
+	var errorResponse ProvisioningErrorResponse
+	if err := json.Unmarshal(msg.Payload(), &errorResponse); err != nil {
 		return err
 	}
 
-	return errors.New(response.ErrorMessage)
+	return errors.New(errorResponse.ErrorMessage)
 }
