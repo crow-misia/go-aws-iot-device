@@ -5,7 +5,6 @@ package awsiotdevice
 import (
 	"crypto/tls"
 	"crypto/x509"
-	"errors"
 	"fmt"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"log/slog"
@@ -79,10 +78,7 @@ func (c *client) Connect(clientId string) error {
 	c.mqttClient = client
 
 	token := client.Connect()
-	if token.WaitTimeout(c.connectTimeout) {
-		return token.Error()
-	}
-	return errors.New("connection timeout")
+	return mqtt.WaitTokenTimeout(token, c.connectTimeout)
 }
 
 func (c *client) Disconnect(quiesce uint) {
@@ -102,10 +98,7 @@ func (c *client) IsConnectionOpen() bool {
 
 func (c *client) Publish(topic string, qos byte, retained bool, payload interface{}) error {
 	token := c.mqttClient.Publish(topic, qos, retained, payload)
-	if token.WaitTimeout(c.publishTimeout) {
-		return token.Error()
-	}
-	return errors.New("publish timeout")
+	return mqtt.WaitTokenTimeout(token, c.publishTimeout)
 }
 
 func (c *client) PublishWithReply(topic string, payload interface{}) (mqtt.Message, error) {
@@ -121,45 +114,31 @@ func (c *client) PublishWithReply(topic string, payload interface{}) (mqtt.Messa
 	filters[rejectedTopic] = 1
 	subscribeToken := c.mqttClient.SubscribeMultiple(filters, subscribeCallback)
 	defer c.mqttClient.Unsubscribe(acceptedTopic, rejectedTopic)
-	if !subscribeToken.WaitTimeout(c.subscribeTimeout) {
-		return nil, errors.New("subscription timeout")
+	if err := mqtt.WaitTokenTimeout(subscribeToken, c.subscribeTimeout); err != nil {
+		return nil, err
 	}
-
 	token := c.mqttClient.Publish(topic, 1, false, payload)
-	if token.WaitTimeout(c.publishTimeout) {
-		if token.Error() != nil {
-			return nil, token.Error()
-		}
-	} else {
-		return nil, errors.New("publish timeout")
+	if err := mqtt.WaitTokenTimeout(token, c.publishTimeout); err != nil {
+		return nil, err
 	}
 
 	am := <-replayCh
-	return am, nil
+	return am, token.Error()
 }
 
 func (c *client) Subscribe(topic string, qos byte, callback mqtt.MessageHandler) error {
 	token := c.mqttClient.Subscribe(topic, qos, callback)
-	if token.WaitTimeout(c.subscribeTimeout) {
-		return token.Error()
-	}
-	return errors.New("subscription timeout")
+	return mqtt.WaitTokenTimeout(token, c.subscribeTimeout)
 }
 
 func (c *client) SubscribeMultiple(filters map[string]byte, callback mqtt.MessageHandler) error {
 	token := c.mqttClient.SubscribeMultiple(filters, callback)
-	if token.WaitTimeout(c.subscribeTimeout) {
-		return token.Error()
-	}
-	return errors.New("subscription timeout")
+	return mqtt.WaitTokenTimeout(token, c.subscribeTimeout)
 }
 
 func (c *client) Unsubscribe(topics ...string) error {
 	token := c.mqttClient.Unsubscribe(topics...)
-	if token.WaitTimeout(c.subscribeTimeout) {
-		return token.Error()
-	}
-	return errors.New("unsubscription timeout")
+	return mqtt.WaitTokenTimeout(token, c.subscribeTimeout)
 }
 
 func newTLSConfig(rootCA []byte, certificate tls.Certificate) (*tls.Config, error) {
