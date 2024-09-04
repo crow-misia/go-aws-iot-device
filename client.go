@@ -6,36 +6,40 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	mqtt "github.com/eclipse/paho.mqtt.golang"
+	"github.com/eclipse/paho.golang/autopaho"
+	"github.com/eclipse/paho.golang/paho"
+	"golang.org/x/net/context"
 	"log/slog"
+	"net/url"
 	"time"
 )
 
 // Client is AWS IoT Core Client.
 type Client interface {
-	IsConnected() bool
-	IsConnectionOpen() bool
-	Connect(clientId string) error
-	Disconnect(quiesce uint)
-	Publish(topic string, qos byte, retained bool, payload interface{}) error
-	PublishWithReply(topic string, payload interface{}) (mqtt.Message, error)
-	Subscribe(topic string, qos byte, callback mqtt.MessageHandler) error
-	SubscribeMultiple(filters map[string]byte, callback mqtt.MessageHandler) error
-	Unsubscribe(topics ...string) error
+	Connect(ctx context.Context, clientId string) error
+	Disconnect(ctx context.Context)
+	Done() <-chan struct{}
+	AwaitConnection(ctx context.Context) error
+	Authenticate(ctx context.Context, a *paho.Auth) (*paho.AuthResponse, error)
+	Subscribe(ctx context.Context, s *paho.Subscribe) (*paho.Suback, error)
+	Unsubscribe(ctx context.Context, u *paho.Unsubscribe) (*paho.Unsuback, error)
+	Publish(ctx context.Context, p *paho.Publish) (*paho.PublishResponse, error)
+	PublishWithReply(ctx context.Context, p *paho.Publish) (*paho.Publish, error)
+	PublishViaQueue(ctx context.Context, p *autopaho.QueuePublish) error
+	AddOnPublishReceived(f func(autopaho.PublishReceived) (bool, error)) func()
 }
 
 // Client is AWS IoT Core Client.
 type client struct {
-	logger           *slog.Logger
-	endpoint         string
-	rootCA           []byte
-	certificate      tls.Certificate
-	tlsConfig        *tls.Config
-	mqttConfig       *mqtt.ClientOptions
-	mqttClient       mqtt.Client
-	connectTimeout   time.Duration
-	publishTimeout   time.Duration
-	subscribeTimeout time.Duration
+	*autopaho.ConnectionManager
+
+	logger         *slog.Logger
+	rootCA         []byte
+	certificate    tls.Certificate
+	tlsConfig      *tls.Config
+	clientConfig   *autopaho.ClientConfig
+	connectTimeout time.Duration
+	packetTimeout  time.Duration
 }
 
 // New returns a new AWS IoT Core Client instance.
@@ -43,10 +47,8 @@ func New(endpoint string, options ...ClientOption) (Client, error) {
 	var err error
 
 	c := &client{
-		endpoint:         endpoint,
-		connectTimeout:   15 * time.Second,
-		publishTimeout:   10 * time.Second,
-		subscribeTimeout: 10 * time.Second,
+		connectTimeout: 15 * time.Second,
+		packetTimeout:  10 * time.Second,
 	}
 
 	for _, option := range options {
@@ -61,84 +63,82 @@ func New(endpoint string, options ...ClientOption) (Client, error) {
 		}
 	}
 
-	if c.mqttConfig == nil {
-		c.mqttConfig = mqtt.NewClientOptions()
+	if c.clientConfig == nil {
+		c.clientConfig = &autopaho.ClientConfig{}
 	}
+
+	u, err := url.Parse(fmt.Sprintf("ssl://%s:%d", endpoint, 443))
+	if err != nil {
+		return nil, err
+	}
+	c.clientConfig.ServerUrls = append(c.clientConfig.ServerUrls, u)
 
 	return c, nil
 }
 
-func (c *client) Connect(clientId string) error {
-	opts := c.mqttConfig
-	opts.AddBroker(fmt.Sprintf("ssl://%s:%d", c.endpoint, 443))
-	opts.SetTLSConfig(c.tlsConfig)
-	opts.SetClientID(clientId)
+func (c *client) Connect(ctx context.Context, clientId string) error {
+	c.clientConfig.ClientID = clientId
+	c.clientConfig.TlsCfg = c.tlsConfig
+	c.clientConfig.ConnectTimeout = c.connectTimeout
+	c.clientConfig.PacketTimeout = c.packetTimeout
 
-	client := mqtt.NewClient(opts)
-	c.mqttClient = client
+	client, err := autopaho.NewConnection(ctx, *c.clientConfig)
+	if err != nil {
+		return err
+	}
+	c.ConnectionManager = client
 
-	token := client.Connect()
-	return waitTokenTimeout(token, c.connectTimeout)
+	connectCtx, _ := context.WithTimeout(ctx, c.connectTimeout)
+	return client.AwaitConnection(connectCtx)
 }
 
-func (c *client) Disconnect(quiesce uint) {
-	mqttClient := c.mqttClient
-	if mqttClient != nil {
-		mqttClient.Disconnect(quiesce)
+func (c *client) Disconnect(ctx context.Context) {
+	cm := c.ConnectionManager
+	if cm != nil {
+		_ = cm.Disconnect(ctx)
+		c.ConnectionManager = nil
 	}
 }
 
-func (c *client) IsConnected() bool {
-	return c.mqttClient != nil && c.mqttClient.IsConnected()
-}
+func (c *client) PublishWithReply(ctx context.Context, p *paho.Publish) (*paho.Publish, error) {
+	acceptedTopic := fmt.Sprintf("%s/accepted", p.Topic)
+	rejectedTopic := fmt.Sprintf("%s/rejected", p.Topic)
 
-func (c *client) IsConnectionOpen() bool {
-	return c.mqttClient != nil && c.mqttClient.IsConnectionOpen()
-}
+	s := &paho.Subscribe{
+		Subscriptions: []paho.SubscribeOptions{
+			{Topic: acceptedTopic, QoS: 1},
+			{Topic: rejectedTopic, QoS: 1},
+		},
+	}
+	u := &paho.Unsubscribe{
+		Topics: []string{acceptedTopic, rejectedTopic},
+	}
 
-func (c *client) Publish(topic string, qos byte, retained bool, payload interface{}) error {
-	token := c.mqttClient.Publish(topic, qos, retained, payload)
-	return waitTokenTimeout(token, c.publishTimeout)
-}
-
-func (c *client) PublishWithReply(topic string, payload interface{}) (mqtt.Message, error) {
-	replayCh := make(chan mqtt.Message)
+	replayCh := make(chan *paho.Publish)
 	defer close(replayCh)
-	subscribeCallback := func(c mqtt.Client, m mqtt.Message) {
-		replayCh <- m
-	}
-	acceptedTopic := fmt.Sprintf("%s/accepted", topic)
-	rejectedTopic := fmt.Sprintf("%s/rejected", topic)
-	filters := make(map[string]byte)
-	filters[acceptedTopic] = 1
-	filters[rejectedTopic] = 1
-	subscribeToken := c.mqttClient.SubscribeMultiple(filters, subscribeCallback)
-	defer c.mqttClient.Unsubscribe(acceptedTopic, rejectedTopic)
-	if err := waitTokenTimeout(subscribeToken, c.subscribeTimeout); err != nil {
+
+	unsubscribeFn := c.AddOnPublishReceived(func(received autopaho.PublishReceived) (bool, error) {
+		if received.AlreadyHandled {
+			return false, nil
+		}
+		replayCh <- received.Packet
+		return true, nil
+	})
+	defer unsubscribeFn()
+
+	_, err := c.Subscribe(ctx, s)
+	if err != nil {
 		return nil, err
 	}
-	token := c.mqttClient.Publish(topic, 1, false, payload)
-	if err := waitTokenTimeout(token, c.publishTimeout); err != nil {
+	defer c.Unsubscribe(ctx, u)
+
+	_, err = c.Publish(ctx, p)
+	if err != nil {
 		return nil, err
 	}
 
 	am := <-replayCh
-	return am, token.Error()
-}
-
-func (c *client) Subscribe(topic string, qos byte, callback mqtt.MessageHandler) error {
-	token := c.mqttClient.Subscribe(topic, qos, callback)
-	return waitTokenTimeout(token, c.subscribeTimeout)
-}
-
-func (c *client) SubscribeMultiple(filters map[string]byte, callback mqtt.MessageHandler) error {
-	token := c.mqttClient.SubscribeMultiple(filters, callback)
-	return waitTokenTimeout(token, c.subscribeTimeout)
-}
-
-func (c *client) Unsubscribe(topics ...string) error {
-	token := c.mqttClient.Unsubscribe(topics...)
-	return waitTokenTimeout(token, c.subscribeTimeout)
+	return am, nil
 }
 
 func newTLSConfig(rootCA []byte, certificate tls.Certificate) (*tls.Config, error) {
@@ -157,11 +157,4 @@ func newTLSConfig(rootCA []byte, certificate tls.Certificate) (*tls.Config, erro
 		InsecureSkipVerify: false,
 		MinVersion:         tls.VersionTLS13,
 	}, nil
-}
-
-func waitTokenTimeout(token mqtt.Token, d time.Duration) error {
-	if d > 0 {
-		return mqtt.WaitTokenTimeout(token, d)
-	}
-	return token.Error()
 }

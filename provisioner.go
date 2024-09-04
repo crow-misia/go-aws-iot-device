@@ -1,12 +1,13 @@
 package awsiotdevice
 
 import (
+	"context"
 	"crypto/elliptic"
 	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
-	mqtt "github.com/eclipse/paho.mqtt.golang"
+	"github.com/eclipse/paho.golang/paho"
 	"strings"
 )
 
@@ -17,8 +18,9 @@ const (
 )
 
 type Provisioner interface {
-	Provisioning(templateName string, parameters map[string]interface{}) (*ProvisioningResponse, error)
-	ProvisioningWithCsr(templateName string, parameters map[string]interface{}) (*ProvisioningResponse, error)
+	Client
+	Provisioning(ctx context.Context, templateName string, parameters map[string]interface{}) (*ProvisioningResponse, error)
+	ProvisioningWithCsr(ctx context.Context, templateName string, parameters map[string]interface{}) (*ProvisioningResponse, error)
 }
 
 type ProvisioningResponse struct {
@@ -30,14 +32,14 @@ type ProvisioningResponse struct {
 }
 
 type provisioner struct {
-	client             Client
+	Client
 	curve              elliptic.Curve
 	signatureAlgorithm x509.SignatureAlgorithm
 }
 
 func CreateProvisioner(client Client, options ...ProvisionerOption) Provisioner {
 	p := &provisioner{
-		client:             client,
+		Client:             client,
 		curve:              elliptic.P256(),
 		signatureAlgorithm: x509.ECDSAWithSHA256,
 	}
@@ -66,8 +68,12 @@ func WithSignatureAlgorithm(signatureAlgorithm x509.SignatureAlgorithm) Provisio
 	}
 }
 
-func (p *provisioner) Provisioning(templateName string, parameters map[string]interface{}) (*ProvisioningResponse, error) {
-	msg, err := p.client.PublishWithReply(createKeysAndCertificateTopic, `{}`)
+func (p *provisioner) Provisioning(ctx context.Context, templateName string, parameters map[string]interface{}) (*ProvisioningResponse, error) {
+	msg, err := p.PublishWithReply(ctx, &paho.Publish{
+		Topic:   createKeysAndCertificateTopic,
+		Payload: []byte("{}"),
+		QoS:     0,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +83,7 @@ func (p *provisioner) Provisioning(templateName string, parameters map[string]in
 		return nil, err
 	}
 
-	provisioningResponse, err := p.registerThings(templateName, parameters, createResponse.CertificateOwnershipToken)
+	provisioningResponse, err := p.registerThings(ctx, templateName, parameters, createResponse.CertificateOwnershipToken)
 	if err != nil {
 		return nil, err
 	}
@@ -91,8 +97,8 @@ func (p *provisioner) Provisioning(templateName string, parameters map[string]in
 	}, nil
 }
 
-func (p *provisioner) ProvisioningWithCsr(templateName string, parameters map[string]interface{}) (*ProvisioningResponse, error) {
-	var msg mqtt.Message
+func (p *provisioner) ProvisioningWithCsr(ctx context.Context, templateName string, parameters map[string]interface{}) (*ProvisioningResponse, error) {
+	var msg *paho.Publish
 
 	csr, err := createCsr(p.curve, p.signatureAlgorithm)
 	if err != nil {
@@ -106,7 +112,11 @@ func (p *provisioner) ProvisioningWithCsr(templateName string, parameters map[st
 		return nil, err
 	}
 
-	msg, err = p.client.PublishWithReply(createCertificateFromCsrTopic, request)
+	msg, err = p.PublishWithReply(ctx, &paho.Publish{
+		Topic:   createCertificateFromCsrTopic,
+		Payload: request,
+		QoS:     0,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -116,7 +126,7 @@ func (p *provisioner) ProvisioningWithCsr(templateName string, parameters map[st
 		return nil, err
 	}
 
-	provisioningResponse, err := p.registerThings(templateName, parameters, createResponse.CertificateOwnershipToken)
+	provisioningResponse, err := p.registerThings(ctx, templateName, parameters, createResponse.CertificateOwnershipToken)
 	if err != nil {
 		return nil, err
 	}
@@ -130,8 +140,8 @@ func (p *provisioner) ProvisioningWithCsr(templateName string, parameters map[st
 	}, nil
 }
 
-func (p *provisioner) registerThings(templateName string, parameters map[string]interface{}, token string) (*RegisterThingResponse, error) {
-	var msg mqtt.Message
+func (p *provisioner) registerThings(ctx context.Context, templateName string, parameters map[string]interface{}, token string) (*RegisterThingResponse, error) {
+	var msg *paho.Publish
 
 	request, err := json.Marshal(&RegisterThingRequest{
 		CertificateOwnershipToken: token,
@@ -141,7 +151,11 @@ func (p *provisioner) registerThings(templateName string, parameters map[string]
 		return nil, err
 	}
 
-	msg, err = p.client.PublishWithReply(fmt.Sprintf(registerThingTopic, templateName), request)
+	msg, err = p.PublishWithReply(ctx, &paho.Publish{
+		Topic:   fmt.Sprintf(registerThingTopic, templateName),
+		QoS:     0,
+		Payload: request,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -153,16 +167,16 @@ func (p *provisioner) registerThings(templateName string, parameters map[string]
 	return &response, nil
 }
 
-func handingReply(msg mqtt.Message, response any) error {
-	if strings.LastIndex(msg.Topic(), "/rejected") < 0 {
-		if err := json.Unmarshal(msg.Payload(), response); err != nil {
+func handingReply(msg *paho.Publish, response any) error {
+	if strings.LastIndex(msg.Topic, "/rejected") < 0 {
+		if err := json.Unmarshal(msg.Payload, response); err != nil {
 			return err
 		}
 		return nil
 	}
 
 	var errorResponse ProvisioningErrorResponse
-	if err := json.Unmarshal(msg.Payload(), &errorResponse); err != nil {
+	if err := json.Unmarshal(msg.Payload, &errorResponse); err != nil {
 		return err
 	}
 

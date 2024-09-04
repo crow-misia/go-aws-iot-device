@@ -4,7 +4,7 @@ package awsiotdevice
 
 import (
 	"crypto/tls"
-	mqtt "github.com/eclipse/paho.mqtt.golang"
+	autopaho "github.com/eclipse/paho.golang/autopaho"
 	"log/slog"
 	"os"
 	"time"
@@ -63,10 +63,10 @@ func WithTLSConfig(tlsConfig *tls.Config) ClientOption {
 	}
 }
 
-// WithMQTTConfig is MQTT Client config setter
-func WithMQTTConfig(config *mqtt.ClientOptions) ClientOption {
+// WithClientConfig is MQTT Client config setter
+func WithClientConfig(config *autopaho.ClientConfig) ClientOption {
 	return func(client *client) error {
-		client.mqttConfig = config
+		client.clientConfig = config
 		return nil
 	}
 }
@@ -79,18 +79,10 @@ func WithConnectTimeout(timeout time.Duration) ClientOption {
 	}
 }
 
-// WithPublishTimeout is publish timeout setter
-func WithPublishTimeout(timeout time.Duration) ClientOption {
+// WithPacketTimeout is packet timeout setter
+func WithPacketTimeout(timeout time.Duration) ClientOption {
 	return func(client *client) error {
-		client.publishTimeout = timeout
-		return nil
-	}
-}
-
-// WithSubscribeTimeout is subscription timeout setter
-func WithSubscribeTimeout(timeout time.Duration) ClientOption {
-	return func(client *client) error {
-		client.subscribeTimeout = timeout
+		client.packetTimeout = timeout
 		return nil
 	}
 }
