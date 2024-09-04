@@ -11,7 +11,6 @@ import (
 	"golang.org/x/net/context"
 	"log/slog"
 	"net/url"
-	"time"
 )
 
 // Client is AWS IoT Core Client.
@@ -33,23 +32,18 @@ type Client interface {
 type client struct {
 	*autopaho.ConnectionManager
 
-	logger         *slog.Logger
-	rootCA         []byte
-	certificate    tls.Certificate
-	tlsConfig      *tls.Config
-	clientConfig   *autopaho.ClientConfig
-	connectTimeout time.Duration
-	packetTimeout  time.Duration
+	logger       *slog.Logger
+	rootCA       []byte
+	certificate  tls.Certificate
+	tlsConfig    *tls.Config
+	clientConfig *autopaho.ClientConfig
 }
 
 // New returns a new AWS IoT Core Client instance.
 func New(endpoint string, options ...ClientOption) (Client, error) {
 	var err error
 
-	c := &client{
-		connectTimeout: 15 * time.Second,
-		packetTimeout:  10 * time.Second,
-	}
+	c := &client{}
 
 	for _, option := range options {
 		if err = option(c); err != nil {
@@ -79,17 +73,13 @@ func New(endpoint string, options ...ClientOption) (Client, error) {
 func (c *client) Connect(ctx context.Context, clientId string) error {
 	c.clientConfig.ClientID = clientId
 	c.clientConfig.TlsCfg = c.tlsConfig
-	c.clientConfig.ConnectTimeout = c.connectTimeout
-	c.clientConfig.PacketTimeout = c.packetTimeout
 
 	client, err := autopaho.NewConnection(ctx, *c.clientConfig)
 	if err != nil {
 		return err
 	}
 	c.ConnectionManager = client
-
-	connectCtx, _ := context.WithTimeout(ctx, c.connectTimeout)
-	return client.AwaitConnection(connectCtx)
+	return nil
 }
 
 func (c *client) Disconnect(ctx context.Context) {

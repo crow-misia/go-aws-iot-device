@@ -5,10 +5,12 @@ import (
 	"flag"
 	"fmt"
 	"github.com/crow-misia/go-aws-iot-device"
+	"github.com/eclipse/paho.golang/autopaho"
 	"github.com/google/uuid"
 	"golang.org/x/net/context"
-	"log"
+	"log/slog"
 	"os"
+	"time"
 )
 
 func main() {
@@ -33,9 +35,13 @@ func main() {
 	}
 
 	ctx := context.Background()
+	log := slog.Default()
 	client, err := awsiotdevice.New(endpoint,
 		awsiotdevice.WithRootCAFile(caFilename),
 		awsiotdevice.WithCertificateAndPrivateKey(certFilename, keyFilename),
+		awsiotdevice.WithClientConfig(&autopaho.ClientConfig{
+			Debug: awsiotdevice.NewSlogLogger(ctx, log, slog.LevelInfo),
+		}),
 	)
 	if err != nil {
 		panic(fmt.Sprintf("failed to construct tls config: %v", err))
@@ -46,9 +52,13 @@ func main() {
 	if err != nil {
 		panic(fmt.Sprintf("failed to generate client id: %v", err))
 	}
-	log.Printf("connecting... %s with %s\n", endpoint, clientId)
+	log.Info(fmt.Sprintf("connecting... %s with %s\n", endpoint, clientId))
 	if err = client.Connect(ctx, clientId.String()); err != nil {
-		panic(fmt.Sprintf("failed to connect broker: %v", err))
+		panic(fmt.Sprintf("connection config invalid: %v", err))
+	}
+	connCtx, _ := context.WithTimeout(ctx, 20*time.Second)
+	if err = client.AwaitConnection(connCtx); err != nil {
+		panic(fmt.Sprintf("connection error: %v", err))
 	}
 
 	provisioner := awsiotdevice.CreateProvisioner(client)
@@ -67,5 +77,5 @@ func main() {
 		panic(fmt.Sprintf("failed output private key: %v", err))
 	}
 	jsonStr, _ := json.Marshal(response)
-	fmt.Printf("%s\n", jsonStr)
+	log.Info(string(jsonStr))
 }

@@ -7,7 +7,6 @@ import (
 	autopaho "github.com/eclipse/paho.golang/autopaho"
 	"log/slog"
 	"os"
-	"time"
 )
 
 // ClientOption type
@@ -67,22 +66,6 @@ func WithTLSConfig(tlsConfig *tls.Config) ClientOption {
 func WithClientConfig(config *autopaho.ClientConfig) ClientOption {
 	return func(client *client) error {
 		client.clientConfig = config
-		return nil
-	}
-}
-
-// WithConnectTimeout is connection timeout setter
-func WithConnectTimeout(timeout time.Duration) ClientOption {
-	return func(client *client) error {
-		client.connectTimeout = timeout
-		return nil
-	}
-}
-
-// WithPacketTimeout is packet timeout setter
-func WithPacketTimeout(timeout time.Duration) ClientOption {
-	return func(client *client) error {
-		client.packetTimeout = timeout
 		return nil
 	}
 }
