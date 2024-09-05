@@ -1,14 +1,17 @@
 package main
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"github.com/crow-misia/go-aws-iot-device"
 	"github.com/eclipse/paho.golang/autopaho"
+	"github.com/eclipse/paho.golang/paho"
 	"github.com/google/uuid"
 	"golang.org/x/net/context"
 	"log/slog"
+	"net/url"
 	"os"
 	"time"
 )
@@ -36,26 +39,43 @@ func main() {
 
 	ctx := context.Background()
 	log := slog.Default()
-	client, err := awsiotdevice.New(endpoint,
-		awsiotdevice.WithRootCAFile(caFilename),
-		awsiotdevice.WithCertificateAndPrivateKey(certFilename, keyFilename),
-		awsiotdevice.WithClientConfig(&autopaho.ClientConfig{
-			Debug: awsiotdevice.NewSlogLogger(ctx, log, slog.LevelInfo),
-		}),
-	)
-	if err != nil {
-		panic(fmt.Sprintf("failed to construct tls config: %v", err))
-	}
-	defer client.Disconnect(ctx)
 
 	clientId, err := uuid.NewRandom()
 	if err != nil {
 		panic(fmt.Sprintf("failed to generate client id: %v", err))
 	}
-	log.Info(fmt.Sprintf("connecting... %s with %s\n", endpoint, clientId))
-	if err = client.Connect(ctx, clientId.String()); err != nil {
-		panic(fmt.Sprintf("connection config invalid: %v", err))
+	serverUrl, err := url.Parse(fmt.Sprintf("ssl://%s:443", endpoint))
+	if err != nil {
+		panic(fmt.Sprintf("failed to parse ServerURL(%s): %v", endpoint, err))
 	}
+	rootCa, err := os.ReadFile(caFilename)
+	if err != nil {
+		panic(fmt.Sprintf("failed to read Root CA: %v", err))
+	}
+	cert, err := tls.LoadX509KeyPair(certFilename, keyFilename)
+	if err != nil {
+		panic(fmt.Sprintf("failed to read Certificate: %v", err))
+	}
+	tlsCfg, err := awsiotdevice.NewTLSConfig(rootCa, cert)
+	if err != nil {
+		panic(fmt.Sprintf("failed to parse Certificate: %v", err))
+	}
+
+	cfg := autopaho.ClientConfig{
+		Debug:      awsiotdevice.NewSlogLogger(ctx, log, slog.LevelInfo),
+		ServerUrls: []*url.URL{serverUrl},
+		TlsCfg:     tlsCfg,
+		ClientConfig: paho.ClientConfig{
+			ClientID: clientId.String(),
+		},
+	}
+	log.Info("connecting...", slog.String("endpoint", endpoint), slog.Any("clientId", clientId))
+	client, err := awsiotdevice.NewConnection(ctx, cfg)
+	if err != nil {
+		panic(fmt.Sprintf("failed to connect: %v", err))
+	}
+	defer client.Disconnect(ctx)
+
 	connCtx, _ := context.WithTimeout(ctx, 20*time.Second)
 	if err = client.AwaitConnection(connCtx); err != nil {
 		panic(fmt.Sprintf("connection error: %v", err))

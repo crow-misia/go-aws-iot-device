@@ -9,14 +9,11 @@ import (
 	"github.com/eclipse/paho.golang/autopaho"
 	"github.com/eclipse/paho.golang/paho"
 	"golang.org/x/net/context"
-	"log/slog"
-	"net/url"
 )
 
 // Client is AWS IoT Core Client.
 type Client interface {
-	Connect(ctx context.Context, clientId string) error
-	Disconnect(ctx context.Context)
+	Disconnect(ctx context.Context) error
 	Done() <-chan struct{}
 	AwaitConnection(ctx context.Context) error
 	Authenticate(ctx context.Context, a *paho.Auth) (*paho.AuthResponse, error)
@@ -31,63 +28,27 @@ type Client interface {
 // Client is AWS IoT Core Client.
 type client struct {
 	*autopaho.ConnectionManager
-
-	logger       *slog.Logger
-	rootCA       []byte
-	certificate  tls.Certificate
-	tlsConfig    *tls.Config
-	clientConfig *autopaho.ClientConfig
 }
 
-// New returns a new AWS IoT Core Client instance.
-func New(endpoint string, options ...ClientOption) (Client, error) {
-	var err error
-
-	c := &client{}
-
-	for _, option := range options {
-		if err = option(c); err != nil {
-			return nil, err
-		}
-	}
-
-	if c.tlsConfig == nil {
-		if c.tlsConfig, err = newTLSConfig(c.rootCA, c.certificate); err != nil {
-			return nil, err
-		}
-	}
-
-	if c.clientConfig == nil {
-		c.clientConfig = &autopaho.ClientConfig{}
-	}
-
-	u, err := url.Parse(fmt.Sprintf("ssl://%s:%d", endpoint, 443))
+// NewConnection returns a new AWS IoT Core Client instance.
+func NewConnection(ctx context.Context, config autopaho.ClientConfig) (Client, error) {
+	cm, err := autopaho.NewConnection(ctx, config)
 	if err != nil {
 		return nil, err
 	}
-	c.clientConfig.ServerUrls = append(c.clientConfig.ServerUrls, u)
-
-	return c, nil
+	return &client{
+		ConnectionManager: cm,
+	}, nil
 }
 
-func (c *client) Connect(ctx context.Context, clientId string) error {
-	c.clientConfig.ClientID = clientId
-	c.clientConfig.TlsCfg = c.tlsConfig
-
-	client, err := autopaho.NewConnection(ctx, *c.clientConfig)
-	if err != nil {
-		return err
-	}
-	c.ConnectionManager = client
-	return nil
-}
-
-func (c *client) Disconnect(ctx context.Context) {
+func (c *client) Disconnect(ctx context.Context) error {
+	var err error
 	cm := c.ConnectionManager
 	if cm != nil {
-		_ = cm.Disconnect(ctx)
+		err = cm.Disconnect(ctx)
 		c.ConnectionManager = nil
 	}
+	return err
 }
 
 func (c *client) PublishWithReply(ctx context.Context, p *paho.Publish) (*paho.Publish, error) {
@@ -131,17 +92,17 @@ func (c *client) PublishWithReply(ctx context.Context, p *paho.Publish) (*paho.P
 	return am, nil
 }
 
-func newTLSConfig(rootCA []byte, certificate tls.Certificate) (*tls.Config, error) {
+func NewTLSConfig(rootCA []byte, certificate tls.Certificate) (*tls.Config, error) {
 	var err error
-	certpool := x509.NewCertPool()
-	certpool.AppendCertsFromPEM(rootCA)
+	certPool := x509.NewCertPool()
+	certPool.AppendCertsFromPEM(rootCA)
 	if certificate.Leaf == nil {
 		if certificate.Leaf, err = x509.ParseCertificate(certificate.Certificate[0]); err != nil {
 			return nil, err
 		}
 	}
 	return &tls.Config{
-		RootCAs:            certpool,
+		RootCAs:            certPool,
 		Certificates:       []tls.Certificate{certificate},
 		NextProtos:         []string{"x-amzn-mqtt-ca"},
 		InsecureSkipVerify: false,
