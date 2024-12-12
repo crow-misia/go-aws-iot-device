@@ -1,6 +1,6 @@
 module github.com/crow-misia/go-aws-iot-device
 
-go 1.22
+go 1.22.0
 
 require (
 	github.com/eclipse/paho.golang v0.22.0
