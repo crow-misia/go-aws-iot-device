@@ -5,7 +5,7 @@ go 1.22.0
 require (
 	github.com/eclipse/paho.golang v0.22.0
 	github.com/google/uuid v1.6.0
-	golang.org/x/net v0.32.0
+	golang.org/x/net v0.33.0
 )
 
 require github.com/gorilla/websocket v1.5.3 // indirect
