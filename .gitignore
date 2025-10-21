@@ -157,6 +157,16 @@ $RECYCLE.BIN/
 # Windows shortcuts
 *.lnk
 
+# Node.js
+node_modules/
+
+# Lefthook
+lefthook-local.*
+
+# mise
+mise.local.toml
+
+# for Example
 certificate.pem
 private.key
 public.key

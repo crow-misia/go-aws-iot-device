@@ -7,8 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/eclipse/paho.golang/paho"
 	"strings"
+
+	"github.com/eclipse/paho.golang/paho"
 )
 
 const (

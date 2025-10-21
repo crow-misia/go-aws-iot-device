@@ -5,15 +5,16 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"github.com/crow-misia/go-aws-iot-device"
-	"github.com/eclipse/paho.golang/autopaho"
-	"github.com/eclipse/paho.golang/paho"
-	"github.com/google/uuid"
-	"golang.org/x/net/context"
 	"log/slog"
 	"net/url"
 	"os"
 	"time"
+
+	awsiotdevice "github.com/crow-misia/go-aws-iot-device"
+	"github.com/eclipse/paho.golang/autopaho"
+	"github.com/eclipse/paho.golang/paho"
+	"github.com/google/uuid"
+	"golang.org/x/net/context"
 )
 
 func main() {
