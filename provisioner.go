@@ -20,12 +20,12 @@ const (
 
 type Provisioner interface {
 	Client
-	Provisioning(ctx context.Context, templateName string, parameters map[string]interface{}) (*ProvisioningResponse, error)
-	ProvisioningWithCsr(ctx context.Context, templateName string, parameters map[string]interface{}) (*ProvisioningResponse, error)
+	Provisioning(ctx context.Context, templateName string, parameters map[string]any) (*ProvisioningResponse, error)
+	ProvisioningWithCsr(ctx context.Context, templateName string, parameters map[string]any) (*ProvisioningResponse, error)
 }
 
 type ProvisioningResponse struct {
-	DeviceConfiguration map[string]interface{}
+	DeviceConfiguration map[string]any
 	ThingName           string
 	CertificateId       string
 	Certificate         string
@@ -69,7 +69,7 @@ func WithSignatureAlgorithm(signatureAlgorithm x509.SignatureAlgorithm) Provisio
 	}
 }
 
-func (p *provisioner) Provisioning(ctx context.Context, templateName string, parameters map[string]interface{}) (*ProvisioningResponse, error) {
+func (p *provisioner) Provisioning(ctx context.Context, templateName string, parameters map[string]any) (*ProvisioningResponse, error) {
 	msg, err := p.PublishWithReply(ctx, &paho.Publish{
 		Topic:   createKeysAndCertificateTopic,
 		Payload: []byte("{}"),
@@ -98,7 +98,7 @@ func (p *provisioner) Provisioning(ctx context.Context, templateName string, par
 	}, nil
 }
 
-func (p *provisioner) ProvisioningWithCsr(ctx context.Context, templateName string, parameters map[string]interface{}) (*ProvisioningResponse, error) {
+func (p *provisioner) ProvisioningWithCsr(ctx context.Context, templateName string, parameters map[string]any) (*ProvisioningResponse, error) {
 	var msg *paho.Publish
 
 	csr, err := createCsr(p.curve, p.signatureAlgorithm)
@@ -141,7 +141,7 @@ func (p *provisioner) ProvisioningWithCsr(ctx context.Context, templateName stri
 	}, nil
 }
 
-func (p *provisioner) registerThings(ctx context.Context, templateName string, parameters map[string]interface{}, token string) (*RegisterThingResponse, error) {
+func (p *provisioner) registerThings(ctx context.Context, templateName string, parameters map[string]any, token string) (*RegisterThingResponse, error) {
 	var msg *paho.Publish
 
 	request, err := json.Marshal(&RegisterThingRequest{

@@ -20,13 +20,13 @@ type CreateCertificateFromCsrResponse struct {
 }
 
 type RegisterThingRequest struct {
-	CertificateOwnershipToken string                 `json:"certificateOwnershipToken"`
-	Parameters                map[string]interface{} `json:"parameters"`
+	CertificateOwnershipToken string         `json:"certificateOwnershipToken"`
+	Parameters                map[string]any `json:"parameters"`
 }
 
 type RegisterThingResponse struct {
-	DeviceConfiguration map[string]interface{} `json:"deviceConfiguration"`
-	ThingName           string                 `json:"thingName"`
+	DeviceConfiguration map[string]any `json:"deviceConfiguration"`
+	ThingName           string         `json:"thingName"`
 }
 
 type ProvisioningErrorResponse struct {

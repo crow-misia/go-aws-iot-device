@@ -77,13 +77,14 @@ func main() {
 	}
 	defer client.Disconnect(ctx)
 
-	connCtx, _ := context.WithTimeout(ctx, 20*time.Second)
+	connCtx, cancelFunc := context.WithTimeout(ctx, 20*time.Second)
+	defer cancelFunc()
 	if err = client.AwaitConnection(connCtx); err != nil {
 		panic(fmt.Sprintf("connection error: %v", err))
 	}
 
 	provisioner := awsiotdevice.CreateProvisioner(client)
-	response, err := provisioner.ProvisioningWithCsr(ctx, template, map[string]interface{}{
+	response, err := provisioner.ProvisioningWithCsr(ctx, template, map[string]any{
 		"SerialNumber": clientId.String(),
 	})
 	if err != nil {
