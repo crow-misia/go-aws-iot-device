@@ -23,10 +23,10 @@ func NewSlogLogger(ctx context.Context, logger *slog.Logger, level slog.Level) *
 	}
 }
 
-func (s SlogLogger) Println(v ...interface{}) {
+func (s SlogLogger) Println(v ...any) {
 	s.logger.Log(s.ctx, s.level, fmt.Sprintf("%v", v...))
 }
 
-func (s SlogLogger) Printf(format string, v ...interface{}) {
+func (s SlogLogger) Printf(format string, v ...any) {
 	s.logger.Log(s.ctx, s.level, fmt.Sprintf(format, v...))
 }
