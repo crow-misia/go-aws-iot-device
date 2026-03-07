@@ -3,13 +3,13 @@
 package awsiotdevice
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
 
 	"github.com/eclipse/paho.golang/autopaho"
 	"github.com/eclipse/paho.golang/paho"
-	"golang.org/x/net/context"
 )
 
 // Client is AWS IoT Core Client.

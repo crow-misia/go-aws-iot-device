@@ -3,10 +3,9 @@
 package awsiotdevice
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
-
-	"golang.org/x/net/context"
 )
 
 type SlogLogger struct {
